@@ -84,7 +84,7 @@ class AcuityBuild(build_py):
     def run(self):
         if _is_fun_enabled():
             print(_color(ANSI_BOLD + BANNER, ANSI_CYAN))
-            print(_color("  ACUITY installer v1.0.0 — extracting local visibility...", ANSI_YELLOW))
+            print(_color("  ACUITY installer v3.1.0 — extracting local visibility...", ANSI_YELLOW))
             print()
             _animate()
             print(_color("  Installing ACUITY Framework...", ANSI_YELLOW))
