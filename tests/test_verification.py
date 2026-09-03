@@ -4,7 +4,7 @@ Tests for the ACUITY Verification module.
 import pytest
 
 from acuity.verification import BPLOVerifier
-from acuity.utils import levenshtein_ratio, levenshtein_details
+from acuity.utils import levenshtein_ratio, levenshtein_details, token_sort_ratio, token_set_ratio, hybrid_fuzzy_match
 from acuity.config import AcuityConfig
 
 
@@ -104,3 +104,30 @@ class TestBPLOVerifier:
         ])
         result = verifier.verify("Test Biz")
         assert result["status"] == "Verified"
+
+# ── Hybrid Match Tests ─────────────────────────────────────────────────────
+
+class TestHybridFuzzyMatch:
+    def test_token_sort_ratio(self):
+        # Order shouldn't matter
+        assert token_sort_ratio("bakeshop juan", "juan bakeshop") == 1.0
+        assert token_sort_ratio("juan bakeshop", "bakeshop juan") == 1.0
+
+    def test_token_set_ratio(self):
+        # Extra words shouldn't ruin the score completely
+        assert token_set_ratio("juan bakeshop in mamatid", "juan bakeshop") == 1.0
+        
+    def test_hybrid_match_takes_max(self):
+        plain = levenshtein_ratio("bakeshop juan", "juan bakeshop") # Will be low
+        sort = token_sort_ratio("bakeshop juan", "juan bakeshop") # Will be 1.0
+        
+        hybrid = hybrid_fuzzy_match("bakeshop juan", "juan bakeshop")
+        assert hybrid == 1.0
+        assert hybrid > plain
+
+    def test_hybrid_match_penalty(self):
+        # "jb" is an acronym for "juan bakeshop". The length ratio is 2 / 13 = 0.15 (which is < 0.35).
+        # Token set ratio might normally score it too high if it thinks they share tokens, 
+        # but with penalty, it should be lowered to avoid false positives.
+        score = hybrid_fuzzy_match("jb", "juan bakeshop in the city")
+        assert score < 0.5

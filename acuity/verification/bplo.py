@@ -14,7 +14,7 @@ import csv
 from typing import Any
 
 from ..config import AcuityConfig
-from ..utils import levenshtein_ratio
+from ..utils import levenshtein_ratio, hybrid_fuzzy_match
 
 
 class BPLOVerifier:
@@ -80,7 +80,7 @@ class BPLOVerifier:
             if not bplo_name:
                 continue
 
-            score = levenshtein_ratio(name_lower, bplo_name)
+            score = hybrid_fuzzy_match(name_lower, bplo_name)
             if score > best_score:
                 best_score = score
                 best_match = entry
