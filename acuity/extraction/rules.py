@@ -25,9 +25,9 @@ PRICE_PATTERN = re.compile(
     r"(?:[₱Pp](?:HP)?)\s?\d[\d,]*(?:\.\d{2})?"
 )
 
-# Operating hours heuristic (e.g. "open 8am-5pm", "available 24/7")
+# Operating hours specific pattern (e.g. 7AM - 7PM, 7:00 am to 5:00 pm)
 HOURS_PATTERN = re.compile(
-    r"\b(?:open|available|hours?)\b.*?\d{1,2}\s?(?:am|pm|AM|PM)",
+    r"\b\d{1,2}(?::\d{2})?(?:\s?[ap]\.?m\.?)?\s*(?:to|-)\s*\d{1,2}(?::\d{2})?\s?[ap]\.?m\.?\b",
     re.IGNORECASE,
 )
 
@@ -43,7 +43,7 @@ def extract_structured_fields(text: str) -> dict:
         Each value is a list of matched strings.
     """
     return {
-        "phones": PHONE_PATTERN.findall(text),
-        "prices": PRICE_PATTERN.findall(text),
-        "hours": HOURS_PATTERN.findall(text),
+        "phones": list(dict.fromkeys(PHONE_PATTERN.findall(text))),
+        "prices": list(dict.fromkeys(PRICE_PATTERN.findall(text))),
+        "hours": list(dict.fromkeys(HOURS_PATTERN.findall(text))),
     }
