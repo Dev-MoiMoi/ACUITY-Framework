@@ -8,9 +8,6 @@ jobs:
   pypi-publish:
     name: Build and publish Python package
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/acuity-framework
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
       contents: read
