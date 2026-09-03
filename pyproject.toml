@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acuity-framework"
-version = "2.0.3"
+version = "3.0.0"
 description = "ACUITY — A machine learning framework for extracting, verifying, and recommending local micro-enterprise profiles from unstructured community posts."
 readme = "README.md"
 license = {text = "MIT"}

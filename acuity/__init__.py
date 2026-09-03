@@ -19,7 +19,7 @@ Quick Start:
     >>> from acuity.verification import BPLOVerifier
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __author__ = "ACUITY Research Team"
 
 from .config import AcuityConfig

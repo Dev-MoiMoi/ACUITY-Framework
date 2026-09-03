@@ -97,6 +97,75 @@ for r in results:
 
 ---
 
+## 🔌 Extensibility (v3.0)
+
+ACUITY v3.0 introduces **three pluggable extension points** via abstract base classes. You can inject custom implementations without modifying the framework's source code. All extension points are optional — existing code continues to work unchanged.
+
+### Custom NER Backend
+
+Replace the built-in CRF/Transformer NER with your own implementation:
+
+```python
+from acuity.extraction.interfaces import NERBackend
+from acuity.extraction import ExtractionPipeline
+
+class MyNERBackend(NERBackend):
+    def extract_entities(self, text: str) -> dict:
+        # Your custom entity extraction logic
+        return {
+            "business_name": ["Detected Name"],
+            "categories": ["food"],
+            "locations": ["Manila"],
+        }
+
+# Inject it — existing config-based NER is used when ner_backend=None (default)
+pipeline = ExtractionPipeline(ner_backend=MyNERBackend())
+profiles = pipeline.extract_from_texts(["Sample post text"])
+```
+
+### Custom Data Source
+
+Replace the Facebook scraper with any data source (CSV, database, API, etc.):
+
+```python
+from acuity.scraper.interfaces import DataSource
+from acuity.extraction import ExtractionPipeline
+
+class MyDataSource(DataSource):
+    def fetch_posts(self, sources: list[str], max_posts: int = 500) -> list[dict]:
+        # Your custom data fetching logic
+        return [{"text": "Post content", "poster": "Author Name"}]
+
+# Inject it and use extract_from_source() for fetch + extract in one call
+pipeline = ExtractionPipeline(data_source=MyDataSource())
+profiles = pipeline.extract_from_source(sources=["my_source_id"])
+```
+
+### Custom Ranking Strategy
+
+Replace TF-IDF + cosine similarity with your own text-relevance scoring:
+
+```python
+from acuity.recommendation.interfaces import RankingStrategy
+from acuity.recommendation import RecommendationEngine
+
+class MyRanking(RankingStrategy):
+    def compute_scores(self, profiles: list[dict], query: str) -> list[float]:
+        # Your custom relevance scoring logic
+        return [1.0 if query.lower() in str(p).lower() else 0.0 for p in profiles]
+
+# Inject it — Haversine proximity is still used alongside (it's a fixed formula)
+engine = RecommendationEngine(ranking_strategy=MyRanking())
+engine.set_profiles(profiles)
+results = engine.recommend("bakery")
+```
+
+> **Note:** Haversine distance, the pipeline stage order (preprocess → NER → rules → postprocess), and Levenshtein fuzzy matching are intentionally **not** abstracted — they are fixed, correct algorithms with no legitimate variation.
+
+See [`examples/demo_extensibility.py`](examples/demo_extensibility.py) for a complete end-to-end demo using all three extension points.
+
+---
+
 ## ⚙️ Configuration
 
 All settings are controlled via the `AcuityConfig` dataclass:
@@ -166,6 +235,7 @@ acuity-framework/
 │   ├── utils.py            # Levenshtein similarity utilities
 │   ├── extraction/         # NLP extraction pipeline
 │   │   ├── pipeline.py     # ExtractionPipeline class
+│   │   ├── interfaces.py   # NERBackend ABC (extensibility)
 │   │   ├── preprocessing.py
 │   │   ├── ner_crf.py
 │   │   ├── ner_transformer.py
@@ -173,19 +243,25 @@ acuity-framework/
 │   │   └── postprocessing.py
 │   ├── recommendation/     # Recommendation engine
 │   │   ├── engine.py       # RecommendationEngine class
+│   │   ├── interfaces.py   # RankingStrategy ABC (extensibility)
 │   │   ├── vectorizer.py   # TF-IDF vectorizer
 │   │   ├── similarity.py   # Cosine similarity
-│   │   ├── proximity.py    # Haversine distance
+│   │   ├── proximity.py    # Haversine distance (fixed, not abstracted)
 │   │   └── ranker.py       # Combined ranking
 │   ├── verification/       # Business verification
 │   │   └── bplo.py         # BPLOVerifier class
-│   └── scraper/            # Facebook scraper (optional)
+│   └── scraper/            # Data collection (optional)
 │       ├── scraper.py      # FacebookScraper class
+│       ├── interfaces.py   # DataSource ABC (extensibility)
 │       └── utils.py
 ├── examples/
 │   ├── basic_extraction.py
 │   ├── basic_recommendation.py
-│   └── flask_integration.py
+│   ├── flask_integration.py
+│   ├── custom_ner_backend.py       # Example: KeywordNERBackend
+│   ├── custom_data_source.py       # Example: CSVDataSource
+│   ├── custom_ranking_strategy.py  # Example: KeywordMatchRanking
+│   └── demo_extensibility.py       # Combined end-to-end demo
 └── tests/
     ├── test_extraction.py
     ├── test_recommendation.py

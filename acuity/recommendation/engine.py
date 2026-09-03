@@ -21,6 +21,7 @@ from .vectorizer import build_tfidf_matrix, transform_query
 from .similarity import compute_cosine_scores
 from .proximity import haversine_distance
 from .ranker import rank_results
+from .interfaces import RankingStrategy
 from ..config import AcuityConfig
 
 
@@ -34,6 +35,13 @@ class RecommendationEngine:
         config: An ``AcuityConfig`` instance. If ``None``, uses defaults.
         relevance_weight: Override the config's relevance weight.
         proximity_weight: Override the config's proximity weight.
+        ranking_strategy: An optional
+            :class:`~acuity.recommendation.interfaces.RankingStrategy` instance.
+            When provided, replaces the built-in TF-IDF + cosine similarity
+            computation for text relevance scoring. When ``None`` (the default),
+            the existing TF-IDF + cosine pipeline is used.
+            Note: Haversine proximity scoring is a fixed, correct geographic
+            formula and is not affected by this parameter.
     """
 
     def __init__(
@@ -41,6 +49,7 @@ class RecommendationEngine:
         config: AcuityConfig | None = None,
         relevance_weight: float | None = None,
         proximity_weight: float | None = None,
+        ranking_strategy: RankingStrategy | None = None,
     ):
         self.config = config or AcuityConfig()
         self.profiles: list[dict] = []
@@ -48,6 +57,7 @@ class RecommendationEngine:
         self.proximity_weight = proximity_weight if proximity_weight is not None else self.config.proximity_weight
         self._tfidf_matrix = None
         self._vectorizer = None
+        self._ranking_strategy = ranking_strategy
 
     def set_profiles(self, profiles: list[dict]) -> None:
         """Load business profiles from an in-memory list.
@@ -103,14 +113,23 @@ class RecommendationEngine:
         if top_k is None:
             top_k = self.config.default_top_k
 
-        if not self.profiles or self._tfidf_matrix is None or self._vectorizer is None:
+        if not self.profiles:
             return []
 
         # Textual relevance
-        query_vec = transform_query(self._vectorizer, query)
-        cosine_scores = compute_cosine_scores(self._tfidf_matrix, query_vec)
+        if self._ranking_strategy is not None:
+            # Use injected ranking strategy
+            cosine_scores = self._ranking_strategy.compute_scores(self.profiles, query)
+        elif self._tfidf_matrix is not None and self._vectorizer is not None:
+            # Existing TF-IDF + cosine similarity path (unchanged)
+            query_vec = transform_query(self._vectorizer, query)
+            cosine_scores = compute_cosine_scores(self._tfidf_matrix, query_vec)
+        else:
+            return []
 
-        # Proximity (if user location provided)
+        # Haversine proximity (if user location provided)
+        # NOTE: Haversine distance is a fixed, correct geographic formula
+        # with no legitimate variation — it is intentionally not abstracted.
         distances: list[float | None] = []
         if user_lat is not None and user_lon is not None:
             for profile in self.profiles:

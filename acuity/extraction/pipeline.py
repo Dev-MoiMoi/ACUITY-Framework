@@ -22,6 +22,8 @@ from typing import Any
 from .preprocessing import preprocess
 from .rules import extract_structured_fields
 from .postprocessing import build_business_profile
+from .interfaces import NERBackend
+from ..scraper.interfaces import DataSource
 from ..config import AcuityConfig
 
 
@@ -35,13 +37,32 @@ class ExtractionPipeline:
         config: An ``AcuityConfig`` instance. If ``None``, uses defaults.
         ner_model: A pre-loaded NER model object. If provided, the pipeline
             will use this model directly instead of loading from ``config.ner_model_path``.
+        ner_backend: An optional :class:`~acuity.extraction.interfaces.NERBackend`
+            instance. When provided, the pipeline uses this backend for NER
+            instead of the built-in CRF/transformer string-branch logic.
+            When ``None`` (the default), the existing config-driven backend
+            selection is used.
+        data_source: An optional :class:`~acuity.scraper.interfaces.DataSource`
+            instance. When provided, enables :meth:`extract_from_source` to
+            fetch posts from a custom data source before extraction.
+            When ``None`` (the default), only :meth:`extract_from_texts`
+            is available (existing behavior unchanged).
     """
 
-    def __init__(self, config: AcuityConfig | None = None, ner_model: Any = None):
+    def __init__(
+        self,
+        config: AcuityConfig | None = None,
+        ner_model: Any = None,
+        ner_backend: NERBackend | None = None,
+        data_source: DataSource | None = None,
+    ):
         self.config = config or AcuityConfig()
         self._ner_model = ner_model
         self._ner_extract_fn = None
-        self._setup_ner()
+        self._custom_ner_backend = ner_backend
+        self._data_source = data_source
+        if self._custom_ner_backend is None:
+            self._setup_ner()
 
     def _setup_ner(self) -> None:
         """Initialise the NER backend based on configuration."""
@@ -86,9 +107,14 @@ class ExtractionPipeline:
         cleaned = preprocess(text)
 
         # Step 2: Named Entity Recognition
-        entities = self._ner_extract_fn(cleaned) if self._ner_extract_fn else {
-            "business_name": [], "categories": [], "locations": []
-        }
+        if self._custom_ner_backend is not None:
+            entities = self._custom_ner_backend.extract_entities(cleaned)
+        elif self._ner_extract_fn:
+            entities = self._ner_extract_fn(cleaned)
+        else:
+            entities = {
+                "business_name": [], "categories": [], "locations": []
+            }
 
         # Step 3: Rule-based extraction (contacts, hours, address patterns)
         structured = extract_structured_fields(cleaned)
@@ -169,3 +195,44 @@ class ExtractionPipeline:
             profiles = unique_profiles
 
         return profiles
+
+    def extract_from_source(
+        self,
+        sources: list[str],
+        max_posts: int = 500,
+        completeness_threshold: int | None = None,
+        deduplicate: bool = True,
+    ) -> list[dict]:
+        """Fetch posts from a :class:`~acuity.scraper.interfaces.DataSource` and extract profiles.
+
+        This is a convenience method that combines data fetching and extraction
+        into a single call. It requires a ``data_source`` to have been provided
+        to the pipeline constructor.
+
+        Args:
+            sources: List of source identifiers (meaning depends on the
+                :class:`~acuity.scraper.interfaces.DataSource` implementation).
+            max_posts: Maximum number of posts to fetch.
+            completeness_threshold: Minimum number of populated detail fields
+                to keep a profile. Defaults to ``config.completeness_threshold``.
+            deduplicate: If True, deduplicate profiles by business name.
+
+        Returns:
+            List of extracted business profile dicts.
+
+        Raises:
+            RuntimeError: If no ``data_source`` was provided to the constructor.
+        """
+        if self._data_source is None:
+            raise RuntimeError(
+                "No data_source was provided to ExtractionPipeline. "
+                "Pass a DataSource instance via the data_source parameter, "
+                "or use extract_from_texts() directly."
+            )
+
+        posts = self._data_source.fetch_posts(sources, max_posts=max_posts)
+        return self.extract_from_texts(
+            texts=posts,
+            completeness_threshold=completeness_threshold,
+            deduplicate=deduplicate,
+        )
