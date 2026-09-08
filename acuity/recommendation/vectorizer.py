@@ -134,7 +134,8 @@ class CustomTfidfVectorizer:
                 # Bi-directional prefix matching
                 if partial_match and len(token) >= 3:
                     for vocab_term in self.vocabulary:
-                        if vocab_term != token and (vocab_term.startswith(token) or token.startswith(vocab_term)):
+                        # Ensure vocab_term is also at least 3 chars before allowing token to start with it
+                        if vocab_term != token and (vocab_term.startswith(token) or (len(vocab_term) >= 3 and token.startswith(vocab_term))):
                             term_counts[vocab_term] += 1
 
             vector = {}
