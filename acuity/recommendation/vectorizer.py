@@ -51,8 +51,8 @@ class CustomTfidfVectorizer:
         text = text.lower()
         tokens = re.findall(r'\b[a-z0-9]+\b', text)
 
-        # Remove stop words and words that are 2 letters or less
-        tokens = [t for t in tokens if t not in STOP_WORDS and len(t) >= 3]
+        # Remove stop words and words that are 3 letters or less
+        tokens = [t for t in tokens if t not in STOP_WORDS and len(t) > 3]
 
         ngrams = []
         min_n, max_n = self.ngram_range
