@@ -97,9 +97,9 @@ for r in results:
 
 ---
 
-## 🔌 Extensibility (v3.0)
+## 🔌 Extensibility (v3.2)
 
-ACUITY v3.0 introduces **three pluggable extension points** via abstract base classes. You can inject custom implementations without modifying the framework's source code. All extension points are optional — existing code continues to work unchanged.
+ACUITY provides **four pluggable extension points** via abstract base classes. You can inject custom implementations without modifying the framework's source code. All extension points are optional — existing code continues to work unchanged.
 
 ### Custom NER Backend
 
@@ -160,9 +160,37 @@ engine.set_profiles(profiles)
 results = engine.recommend("bakery")
 ```
 
-> **Note:** Haversine distance, the pipeline stage order (preprocess → NER → rules → postprocess), and Levenshtein fuzzy matching are intentionally **not** abstracted — they are fixed, correct algorithms with no legitimate variation.
+> **Note:** Haversine distance and the pipeline stage order (preprocess → NER → rules → postprocess) are intentionally **not** abstracted — they are fixed, correct algorithms with no legitimate variation. The Levenshtein/token-sort/token-set *utilities* are also fixed mathematical functions, but the *strategy* for applying them during verification is pluggable (see below).
 
-See [`examples/demo_extensibility.py`](examples/demo_extensibility.py) for a complete end-to-end demo using all three extension points.
+### Custom Verification Strategy *(new in v3.2)*
+
+Replace the built-in hybrid fuzzy matching with your own business-name matching logic:
+
+```python
+from acuity.verification.interfaces import VerificationStrategy
+from acuity.verification import BPLOVerifier
+
+class PhoneticMatcher(VerificationStrategy):
+    def compute_match_score(self, candidate_name: str, registry_name: str) -> float:
+        # Your custom matching logic (phonetic, embedding-based, etc.)
+        return 0.85
+
+# Inject it — default hybrid_fuzzy_match is used when verification_strategy=None
+verifier = BPLOVerifier(verification_strategy=PhoneticMatcher())
+verifier.load_registry_from_list([{"name": "Juan's Bakeshop"}])
+result = verifier.verify("Mang Juan's Bakery")
+```
+
+The framework also ships a built-in **`FastMatchStrategy`** optimised for batch verification with large registries. It uses a three-stage heuristic pipeline (length-ratio screening → `SequenceMatcher` heuristic → early-pruning Levenshtein DP) to skip obviously non-matching pairs:
+
+```python
+from acuity.verification import BPLOVerifier, FastMatchStrategy
+
+# Use the optimised strategy for large registries
+verifier = BPLOVerifier(verification_strategy=FastMatchStrategy(threshold=0.6))
+```
+
+See [`examples/demo_extensibility.py`](examples/demo_extensibility.py) for a complete end-to-end demo using all four extension points.
 
 ---
 
@@ -232,7 +260,7 @@ acuity-framework/
 ├── acuity/
 │   ├── __init__.py         # Public API
 │   ├── config.py           # AcuityConfig dataclass
-│   ├── utils.py            # Levenshtein similarity utilities
+│   ├── utils.py            # Levenshtein, fuzzy matching, fast matching utilities
 │   ├── extraction/         # NLP extraction pipeline
 │   │   ├── pipeline.py     # ExtractionPipeline class
 │   │   ├── interfaces.py   # NERBackend ABC (extensibility)
@@ -249,7 +277,8 @@ acuity-framework/
 │   │   ├── proximity.py    # Haversine distance (fixed, not abstracted)
 │   │   └── ranker.py       # Combined ranking
 │   ├── verification/       # Business verification
-│   │   └── bplo.py         # BPLOVerifier class
+│   │   ├── bplo.py         # BPLOVerifier, FastMatchStrategy
+│   │   └── interfaces.py   # VerificationStrategy ABC (extensibility, new in v3.2)
 │   └── scraper/            # Data collection (optional)
 │       ├── scraper.py      # FacebookScraper class
 │       ├── interfaces.py   # DataSource ABC (extensibility)
@@ -263,9 +292,9 @@ acuity-framework/
 │   ├── custom_ranking_strategy.py  # Example: KeywordMatchRanking
 │   └── demo_extensibility.py       # Combined end-to-end demo
 └── tests/
-    ├── test_extraction.py
-    ├── test_recommendation.py
-    └── test_verification.py
+    ├── test_extraction.py      # 16 tests
+    ├── test_recommendation.py  # 17 tests
+    └── test_verification.py    # 48 tests
 ```
 
 ---
@@ -285,3 +314,20 @@ This framework was developed as part of an academic thesis at the College of Com
 - **Haversine Formula** for geographic proximity computation
 - **CRF (Conditional Random Field)** for Named Entity Recognition with BIO tagging
 - **Levenshtein Distance** for fuzzy string matching in business verification
+- **Early-Pruning Levenshtein** *(v3.2)* — two-row DP with per-row minimum threshold check for fast batch rejection
+- **Multi-Stage Heuristic Matching** *(v3.2)* — length-ratio screening → SequenceMatcher heuristic → early-pruning Levenshtein DP
+
+---
+
+## 📋 Changelog
+
+### v3.2.0
+
+- **New:** `VerificationStrategy` pluggable interface — inject custom business-name matching strategies into `BPLOVerifier`
+- **New:** `FastMatchStrategy` — built-in optimised verification strategy using a three-stage heuristic pipeline
+- **New:** `fast_levenshtein_ratio()` — early-pruning Levenshtein DP that aborts when the threshold is unreachable
+- **New:** `multi_stage_match()` — multi-stage heuristic pipeline for fast batch verification
+- **New:** `pre_tokenize_sort()` — order-independent token comparison utility
+- **New:** 30 additional tests (81 total, up from 51)
+- Framework now has **4 pluggable extension points** (was 3)
+

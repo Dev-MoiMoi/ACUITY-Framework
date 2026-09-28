@@ -14,7 +14,60 @@ import csv
 from typing import Any
 
 from ..config import AcuityConfig
-from ..utils import levenshtein_ratio, hybrid_fuzzy_match
+from ..utils import (
+    levenshtein_ratio,
+    hybrid_fuzzy_match,
+    fast_levenshtein_ratio,
+    multi_stage_match,
+    pre_tokenize_sort,
+)
+from .interfaces import VerificationStrategy
+
+
+class FastMatchStrategy(VerificationStrategy):
+    """Optimised verification strategy using multi-stage heuristic filtering.
+
+    Applies progressively more expensive checks — length-ratio
+    pre-screening, ``difflib.SequenceMatcher`` heuristic, then
+    early-pruning Levenshtein DP — to quickly eliminate non-matching
+    candidates before running the full edit-distance computation.
+
+    This is the same pipeline used in the ACUITY production system
+    for batch BPLO registry verification with hundreds of entries.
+
+    Both names are pre-tokenized and sorted before comparison to
+    achieve order-independence (e.g. ``"bakeshop juan"`` matches
+    ``"juan bakeshop"``).
+
+    Args:
+        threshold: Minimum similarity ratio for a match to be
+            considered.  Candidates below this are rejected early
+            (default: ``0.6``).
+    """
+
+    def __init__(self, threshold: float = 0.6):
+        self.threshold = threshold
+
+    def compute_match_score(
+        self,
+        candidate_name: str,
+        registry_name: str,
+    ) -> float:
+        """Compute similarity using the multi-stage pipeline.
+
+        Args:
+            candidate_name: Lowercased extracted business name.
+            registry_name: Lowercased registry entry name.
+
+        Returns:
+            Similarity ratio in ``[0, 1]``, or ``0.0`` if the
+            threshold cannot be met.
+        """
+        sorted_candidate = pre_tokenize_sort(candidate_name)
+        sorted_registry = pre_tokenize_sort(registry_name)
+        return multi_stage_match(
+            sorted_candidate, sorted_registry, self.threshold,
+        )
 
 
 class BPLOVerifier:
@@ -22,11 +75,29 @@ class BPLOVerifier:
 
     Args:
         config: An ``AcuityConfig`` instance. If ``None``, uses defaults.
+        verification_strategy: An optional
+            :class:`~acuity.verification.interfaces.VerificationStrategy`
+            instance.  When provided, replaces the built-in
+            :func:`~acuity.utils.hybrid_fuzzy_match` function for
+            computing name similarity scores.  When ``None`` (the
+            default), the existing hybrid fuzzy matching is used.
+
+            Use :class:`FastMatchStrategy` for batch scenarios where
+            throughput matters more than recall:
+
+            >>> verifier = BPLOVerifier(
+            ...     verification_strategy=FastMatchStrategy(threshold=0.6),
+            ... )
     """
 
-    def __init__(self, config: AcuityConfig | None = None):
+    def __init__(
+        self,
+        config: AcuityConfig | None = None,
+        verification_strategy: VerificationStrategy | None = None,
+    ):
         self.config = config or AcuityConfig()
         self.registry: list[dict[str, str]] = []
+        self._verification_strategy = verification_strategy
 
     def load_registry_from_csv(self, path: str) -> None:
         """Load BPLO registry from a CSV file.
@@ -65,7 +136,7 @@ class BPLOVerifier:
         Returns:
             Dictionary with keys:
                 - ``status``: ``"Verified"``, ``"Pending Verification"``, or ``"Unverified"``
-                - ``score``: Best Levenshtein similarity ratio (0–1)
+                - ``score``: Best similarity ratio (0–1)
                 - ``match``: The best matching registry entry, or ``None``
         """
         best_match = None
@@ -80,7 +151,13 @@ class BPLOVerifier:
             if not bplo_name:
                 continue
 
-            score = hybrid_fuzzy_match(name_lower, bplo_name)
+            if self._verification_strategy is not None:
+                score = self._verification_strategy.compute_match_score(
+                    name_lower, bplo_name,
+                )
+            else:
+                score = hybrid_fuzzy_match(name_lower, bplo_name)
+
             if score > best_score:
                 best_score = score
                 best_match = entry
